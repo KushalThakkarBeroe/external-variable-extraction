@@ -1,0 +1,177 @@
+# ---------------------------------------------------------------------------
+# Commodity driver ingestion pipeline: master configuration
+# ---------------------------------------------------------------------------
+# This file is the single human touchpoint for the pipeline. Everything the
+# machine cannot obtain on its own (paid credentials, API keys behind a manual
+# signup, files a person had to download by hand) is declared here.
+#
+# SECRET RESOLUTION ORDER, per key:
+#   1. Literal value written in this file            (convenient, least secure)
+#   2. ${ENV:VAR_NAME} placeholder -> os.environ      (recommended)
+#   3. Absent / null -> the pipeline treats the source as unavailable and
+#      records a human-in-the-loop task instead of failing the whole run.
+#
+# Never commit real secrets. Keep this file in .gitignore and distribute
+# config/credentials.example.yaml instead.
+# ---------------------------------------------------------------------------
+
+run:
+  # Historical window. Beroe modelling needs 6-8 years minimum; we pull 12 to
+  # leave room for differencing, lag creation and out-of-sample backtesting.
+  start_date: "2014-01-01"
+  end_date: null                 # null = today
+  min_history_years: 8           # a series shorter than this is flagged, not dropped
+  timezone: "UTC"
+
+registry:
+  # Minimal-input seed file for new driver enrichment. F5 (53-row) batch
+  # validated the fixes; now pointed at the full 483-row/38-commodity set.
+  new_drivers_seed: "input/new_drivers.xlsx"
+  # If true, the pipeline will auto-enrich new rows from the seed file on every run
+  auto_enrich_new_drivers: true
+  # Fuzzy-match threshold (0-1, difflib.SequenceMatcher ratio) for flagging a
+  # new seed row as a possible near-duplicate of an existing driver in the
+  # same commodity+region. Never auto-merges — only written to
+  # paths.possible_duplicates for human review. The exact-match dedup key
+  # (commodity + driver_name + region) is what actually prevents a duplicate
+  # row from being created.
+  near_duplicate_threshold: 0.6
+
+paths:
+  registry: "input/driver_registry.csv"
+  raw_cache: "output/raw"        # every downloaded byte, kept for auditability
+  interim: "output/interim"      # normalised but pre-rollup observations
+  curated: "output/monthly"      # final monthly panel
+  manifest: "output/run_manifest.json"
+  hitl_tasks: "output/human_in_the_loop_tasks.yaml"
+  manual_drop: "input/manual"    # where a human drops files named <driver_id>.*
+  checkpoint_log: "output/checkpoint_log.txt"  # appended every checkpoint, see output.checkpoint_every_n_drivers
+  possible_duplicates: "output/possible_duplicate_drivers.yaml"  # near-duplicate report from enrichment, see registry.near_duplicate_threshold
+  success_flag_file: "output/success_flags.xlsx"  # which drivers cleared output.success_flag_threshold; read by --skip-flagged
+  rejected_alternate_sources: "output/rejected_alternate_sources.yaml"  # accumulates across runs, see cascade.allow_alternate_source_search
+
+http:
+  user_agent: "AiQMEN-CommodityResearchBot/1.0 (+research use; contact: data@aiqmen.com)"
+  timeout_seconds: 60
+  max_retries: 4
+  backoff_factor: 1.8            # exponential: 1.8s, 3.2s, 5.8s, 10.5s
+  # Politeness throttle, applied per hostname: a fresh random gap between
+  # these two bounds is drawn on every request, not a fixed interval —
+  # evenly-spaced requests are themselves a mild bot signal on some sites.
+  per_host_delay_min_seconds: 3.0
+  per_host_delay_max_seconds: 7.0
+  cache_ttl_hours: 24            # re-downloading the same Pink Sheet 6x is wasteful
+  verify_ssl: true
+  # Wall-clock budget for any single multi-request retrieval attempt (a
+  # multi-page crawl, or a connector looping year-by-year/month-by-month).
+  # Bounds total time even when every individual request is within its own
+  # timeout, so one bad source can't stall a run for many minutes. Whatever
+  # was collected before the budget runs out is still returned/used.
+  max_retrieval_seconds: 180
+
+cascade:
+  # The escalation ladder. If declared_tier fails, the orchestrator walks these
+  # tiers in order before giving up and handing the driver to a human.
+  escalation_order: [1, 2, 3, 4]
+  attempt_declared_tier_first: true
+  allow_auto_signup: true        # Tier 4: try to self-register for free API keys
+  max_tier_attempts: 2           # attempts per tier before escalating
+  stop_on_first_success: true
+  # Hosts confirmed to reject every request (e.g. a 403 bot-block that
+  # headers don't clear). Skipped immediately, zero network calls, instead
+  # of re-attempting on every run. Human-curated only — nothing is added
+  # here automatically. Remove an entry once the source is reachable again.
+  known_blocked_hosts:
+    - "wahis.woah.org"   # confirmed 403 on the JSON report-list endpoint
+  # Last-resort escalation step: when a driver exhausts its declared tier,
+  # every other tier, and any registered fallback, ask the LLM to propose a
+  # genuinely different publisher and verify it through the same live-fetch
+  # + quality-gate bar as everything else. Only ever fires for real
+  # failures — never for a success, a thin-but-real pass, or a
+  # --skip-flagged reuse. A verified hit is committed to driver_registry.csv
+  # as a new fallback; a rejected proposal is remembered in
+  # paths.rejected_alternate_sources so it's never re-proposed.
+  allow_alternate_source_search: true
+  # Deliberately low: the real gate is the live fetch + quality check that
+  # follows, not the LLM's self-reported confidence.
+  alternate_source_min_confidence: 0.4
+  # Stop searching for a given driver after this many rejected attempts
+  # (across all runs, not just this one) rather than paying for a search
+  # that's shown a pattern of not finding anything.
+  alternate_source_max_attempts_per_driver: 3
+
+rollup:
+  # Default aggregation when the registry does not specify one.
+  default_method: "mean"
+  # A month with fewer than this share of expected observations is marked
+  # incomplete. Daily FX with 6 quotes in a month should not silently become
+  # a monthly average.
+  min_coverage_ratio: 0.6
+  # Carry the last known value forward across at most this many months when a
+  # source publishes irregularly. 0 disables interpolation entirely.
+  max_forward_fill_months: 1
+  month_label: "period_start"    # month stamped as YYYY-MM-01
+
+llm:
+  # The LLM is used for five narrow jobs: picking the right sheet/table,
+  # extracting tabular data from PDF text, re-classifying a source's tier,
+  # proposing metadata for new drivers, and never invents values — every
+  # value must be traceable to source text.
+  enabled: true
+  provider: "anthropic"
+  model: "${ENV:ANTHROPIC_MODEL}"
+  api_key: "${ENV:ANTHROPIC_API_KEY}"
+  max_tokens: 4000
+  # temperature intentionally omitted: newer Claude models reject an explicit
+  # value ("temperature is deprecated for this model"), so the API default is
+  # used instead. Left undocumented as a config key on purpose — see llm.py.
+
+credentials:
+  # ---- Free API keys: self-signup attempted automatically when possible ----
+  fred_api_key: "${ENV:FRED_API_KEY}"              # https://fredaccount.stlouisfed.org/apikeys
+  eia_api_key: "${ENV:EIA_API_KEY}"                # https://www.eia.gov/opendata/register/
+  usda_nass_api_key: "${ENV:USDA_NASS_API_KEY}"    # https://quickstats.nass.usda.gov/api
+  usda_fas_api_key: "${ENV:USDA_FAS_API_KEY}"      # https://apps.fas.usda.gov/opendataweb
+  comtrade_api_key: "${ENV:COMTRADE_API_KEY}"      # https://comtradeplus.un.org
+
+  # ---- Login-gated: free registration, but portal flow needs a human ----
+  mla_username: "${ENV:MLA_USERNAME}"               # Meat & Livestock Australia
+  mla_password: "${ENV:MLA_PASSWORD}"
+
+  # ---- Paid / restricted: licence check required before ingestion ----
+  fastmarkets_api_key: "${ENV:FASTMARKETS_API_KEY}"   # pulp capacity & downtime
+  euromonitor_api_key: "${ENV:EUROMONITOR_API_KEY}"   # tissue demand
+
+output:
+  format: "parquet"              # parquet | csv | both
+  write_wide_panel: false        # extra commodity x region wide matrix (overwritten each run)
+  include_quality_columns: true
+  # One persistent tracker_<commodity>_<region>.xlsx per commodity x region,
+  # upserted every run: new values win for months this run covers, older
+  # months outside the run window are carried forward. Distinct from the wide
+  # CSV above (now disabled), which would be fully recomputed each run.
+  write_tracker_xlsx: true
+  # Timestamped Excel workbook (run_report_YYYYMMDD_HHMMSS.xlsx) with run
+  # summary, driver outcomes, tier breakdown, and per-commodity metrics
+  write_run_report: true
+  # Flush tracker .xlsx files + append a progress-log block every N drivers
+  # (registry rows) processed, so an interrupted run doesn't lose everything
+  # already done and shows exactly where to resume from. 0 disables
+  # checkpointing.
+  checkpoint_every_n_drivers: 20
+  # Share of a driver's observed months that must carry a value (density,
+  # same check as the quality gate) for it to be flagged in
+  # paths.success_flag_file as safe to skip on a future --skip-flagged run.
+  success_flag_threshold: 0.4
+
+parallel:
+  # Only read by run_pipeline_parallel.py — run_pipeline.py is fully
+  # sequential and never looks at this. Number of drivers fetched
+  # concurrently. The workload is network-bound, not CPU-bound, so this can
+  # comfortably exceed your CPU core count; per_host_delay_seconds above
+  # still enforces politeness per host regardless of how high this is set.
+  max_workers: 8
+
+logging:
+  level: "INFO"
+  file: "output/pipeline.log"
