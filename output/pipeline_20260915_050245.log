@@ -1,0 +1,49 @@
+2026-09-15 10:32:45,182 | INFO     | run_pipeline                 | Commodity driver pipeline starting
+2026-09-15 10:32:45,182 | INFO     | run_pipeline                 | Registry: /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/input/sample_registry.csv
+2026-09-15 10:32:45,182 | INFO     | run_pipeline                 | Window:   2014-01-01 to today (minimum 8 years of history)
+2026-09-15 10:32:45,896 | INFO     | pipeline.registry            | Loaded 4 driver specifications from /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/input/sample_registry.csv
+2026-09-15 10:32:45,896 | INFO     | run_pipeline                 | 3 primary drivers queued (4 rows including fallbacks)
+2026-09-15 10:32:45,898 | INFO     | run_pipeline                 | [1/3] LA_PLP_FX
+2026-09-15 10:32:45,898 | INFO     | pipeline.cascade             | ==============================================================================
+2026-09-15 10:32:45,898 | INFO     | pipeline.cascade             | Driver LA_PLP_FX | Pulp / USD/BRL exchange rate | declared Tier 1 - direct URL/API
+2026-09-15 10:32:45,898 | INFO     | pipeline.tiers.tier1_direct  | [T1] LA_PLP_FX via connector 'bcb_sgs'
+2026-09-15 10:33:03,684 | INFO     | pipeline.cascade             |   Tier 1 attempt 1 -> success (Tier 1 - direct URL/API: 10451 raw observations)
+2026-09-15 10:33:03,717 | INFO     | pipeline.cascade             |   ACCEPTED at tier 1: 153 months, 12.8 years of history
+2026-09-15 10:33:03,734 | INFO     | run_pipeline                 | [2/3] AU_PLT_SUBST
+2026-09-15 10:33:03,734 | INFO     | pipeline.cascade             | ==============================================================================
+2026-09-15 10:33:03,734 | INFO     | pipeline.cascade             | Driver AU_PLT_SUBST | Poultry / Substitute meat prices (beef and pork) | declared Tier 4 - gated
+2026-09-15 10:33:03,735 | INFO     | pipeline.cascade             |   Tier 4 attempt 1 -> blocked_credentials (Portal login required. Register free at https://www.mla.com.au/prices-markets/, then set mla_username and mla_password i)
+2026-09-15 10:33:06,774 | INFO     | httpx2                       | HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-09-15 10:33:06,796 | INFO     | pipeline.llm                 | LLM re-classified AU_PLT_SUBST as tier 4 (login)
+2026-09-15 10:33:06,796 | WARNING  | pipeline.cascade             | Falling back from AU_PLT_SUBST to AU_PLT_SUBST_FB
+2026-09-15 10:33:06,796 | INFO     | pipeline.cascade             | ==============================================================================
+2026-09-15 10:33:06,796 | INFO     | pipeline.cascade             | Driver AU_PLT_SUBST_FB | Poultry / Substitute meat prices fallback | declared Tier 2 - embedded file
+2026-09-15 10:33:06,800 | INFO     | pipeline.tiers.tier2_files   | [T2] AU_PLT_SUBST_FB via connector 'worldbank_pinksheet'
+2026-09-15 10:33:06,952 | INFO     | pipeline.tiers.tier2_files   | Discovered file link (score 31): https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx
+2026-09-15 10:33:07,130 | INFO     | pipeline.http_client         | Downloaded https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx (573.0 KB) -> 8f8c191a28d84a6e35f9.xlsx
+2026-09-15 10:33:07,533 | INFO     | pipeline.tiers.tier2_files   | [T2] 'Beef' located on sheet 'Monthly Prices' of 8f8c191a28d84a6e35f9.xlsx
+2026-09-15 10:33:07,533 | INFO     | pipeline.cascade             |   Tier 2 attempt 1 -> success (Tier 2 - embedded file: 800 raw observations)
+2026-09-15 10:33:07,543 | INFO     | pipeline.cascade             |   ACCEPTED at tier 2: 152 months, 12.7 years of history
+2026-09-15 10:33:07,547 | INFO     | run_pipeline                 | [3/3] GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA
+2026-09-15 10:33:07,547 | INFO     | pipeline.cascade             | ==============================================================================
+2026-09-15 10:33:07,547 | INFO     | pipeline.cascade             | Driver GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA | Benzene / Crude oil price (EIA fallback) | declared Tier 4 - gated
+2026-09-15 10:33:07,547 | INFO     | pipeline.tiers.tier4_gated   | [T4] No automated signup path for 'eia'; will raise a HITL task
+2026-09-15 10:33:07,548 | INFO     | pipeline.cascade             |   Tier 4 attempt 1 -> blocked_credentials (Free API key required. Register at https://www.eia.gov/opendata/ and set credentials.eia_api_key in config.yaml.)
+2026-09-15 10:33:11,287 | INFO     | httpx2                       | HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-09-15 10:33:11,293 | INFO     | pipeline.llm                 | LLM re-classified GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA as tier 4 (api_key)
+2026-09-15 10:33:11,296 | INFO     | pipeline.tiers.tier4_gated   | [T4] No automated signup path for 'eia'; will raise a HITL task
+2026-09-15 10:33:13,978 | INFO     | httpx2                       | HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-09-15 10:33:13,988 | INFO     | pipeline.llm                 | LLM proposed source for Benzene / Crude oil price (EIA fallback) / Global: World Bank Commodity Markets (Pink Sheet) (confidence 0.75)
+2026-09-15 10:33:13,989 | INFO     | pipeline.tiers.tier1_direct  | [T1] GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA via connector 'worldbank_pinksheet'
+2026-09-15 10:33:14,062 | INFO     | pipeline.tiers.tier2_files   | Discovered file link (score 31): https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx
+2026-09-15 10:33:14,062 | INFO     | pipeline.http_client         | Cache hit for https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx -> 8f8c191a28d84a6e35f9.xlsx
+2026-09-15 10:33:14,368 | INFO     | pipeline.tiers.tier2_files   | [T2] 'Crude oil, average' located on sheet 'Monthly Prices' of 8f8c191a28d84a6e35f9.xlsx
+2026-09-15 10:33:14,379 | INFO     | pipeline.cascade             | Alternate source rescued GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA via https://www.worldbank.org/en/research/commodity-markets (worldbank_pinksheet, confidence 0.75)
+2026-09-15 10:33:14,385 | INFO     | pipeline.alternate_sources   | Committed alternate source GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA_ALT as fallback for GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA (chain tail GLOBAL_BENZENE_CRUDE_OIL_PRICE_EIA)
+2026-09-15 10:33:14,386 | INFO     | pipeline.alternate_sources   | Appended 1 auto-discovered alternate source row(s) to /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/input/sample_registry.csv
+2026-09-15 10:33:14,387 | INFO     | pipeline.fallback_audit      | Fallback audit log: recorded 1 target(s) exercised this run -> /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/output/fallback_audit_log.csv
+2026-09-15 10:33:14,453 | INFO     | pipeline.storage             | Wrote monthly panel: 457 rows, 3 drivers -> /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/output/monthly/monthly_panel.parquet
+2026-09-15 10:33:14,453 | INFO     | pipeline.storage             | No human-in-the-loop tasks this run
+2026-09-15 10:33:14,456 | INFO     | pipeline.storage             | Wrote run manifest -> /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/output/run_manifest.json
+2026-09-15 10:33:14,483 | INFO     | pipeline.storage             | Wrote Excel report -> /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/output/monthly/run_report_20260915_050245.xlsx
+2026-09-15 10:33:14,489 | INFO     | pipeline.success_flags       | Wrote success-flag file (3/3 drivers meet the 40% threshold) -> /Users/opudebnath/Documents/Commodity-Price-Forecasting/external variable extraction/output/success_flags.xlsx
